@@ -29,12 +29,6 @@ for py in range(86):
 frames = []
 for frame in range(COUNT):
     t = frame / COUNT * math.tau
-    progress = frame / COUNT
-    # Smooth reveal, a still portrait, and a smooth return to the waves.
-    def smooth(v):
-        v = max(0, min(1, v))
-        return v*v*(3-2*v)
-    reveal = smooth((progress-0.12)/0.20) * (1-smooth((progress-0.68)/0.20))
     # An inferred shallow face relief: curved cheeks, brow, and nose.
     # Inverse projection avoids gaps as the textured surface turns.
     yaw = 0.72*math.sin(t)
@@ -73,8 +67,11 @@ for frame in range(COUNT):
             wake = math.cos(radius*10-t*2+0.8*math.sin(a*2+t))
             envelope = math.exp(-0.22*x*x-0.68*y*y)
             value = max(0,min(1,(0.5+0.34*carrier+0.16*wake)*envelope))
-            face = face_values.get((col,row), 0.0)
-            value = value*(1-reveal) + face*reveal
+            # Opaque portrait in front; waves stay behind the silhouette.
+            if (col,row) in face_values:
+                value = face_values[(col,row)]
+            else:
+                value *= 0.65
             idx = min(len(marks)-1,int(value*len(marks)))
             char = marks[idx]
             if char == ' ': continue
@@ -82,5 +79,5 @@ for frame in range(COUNT):
             draw.text((col*CW,row*CH),char,font=font,fill=(brightness,brightness,min(255,brightness+4)))
     frames.append(canvas.quantize(colors=64))
 frames[0].save('assets/kinetic.gif',save_all=True,append_images=frames[1:],duration=80,loop=0,optimize=True,disposal=2)
-frames[56].convert('RGB').save('/tmp/z-face-preview.png')
+frames[0].convert('RGB').save('/tmp/z-face-preview.png')
 frames[38].convert('RGB').save('/tmp/z-turn-preview.png')
