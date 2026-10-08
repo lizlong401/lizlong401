@@ -37,21 +37,21 @@ for frame in range(COUNT):
     reveal = smooth((progress-0.12)/0.20) * (1-smooth((progress-0.68)/0.20))
     # An inferred shallow face relief: curved cheeks, brow, and nose.
     # Inverse projection avoids gaps as the textured surface turns.
-    yaw = 0.32*math.sin(t)
-    pitch = 0.12*math.cos(t)
+    yaw = 0.72*math.sin(t)
+    pitch = 0.22*math.cos(t)
     face_values = {}
     def relief(u, v):
         oval = max(0, 1-(u/68)**2-((v-2)/43)**2)
-        nose = 9*math.exp(-(u/9)**2-((v-5)/12)**2)
-        return 18*math.sqrt(oval)+nose
+        nose = 13*math.exp(-(u/9)**2-((v-5)/12)**2)
+        return 28*math.sqrt(oval)+nose
     for py in range(86):
         for px in range(160):
             screen_x, screen_y = px-80, py-43
             u, v = screen_x, screen_y
             for _ in range(3):
                 depth = relief(u,v)
-                u = (screen_x-(depth-9)*math.sin(yaw))/math.cos(yaw)
-                v = screen_y+(depth-9)*math.sin(pitch)
+                u = (screen_x-(depth-14)*math.sin(yaw))/math.cos(yaw)
+                v = screen_y+(depth-14)*math.sin(pitch)
             sx, sy = int(round(u+72)), int(round(v+43))
             tone = portrait_values.get((sx,sy),0)
             if tone:
@@ -83,3 +83,4 @@ for frame in range(COUNT):
     frames.append(canvas.quantize(colors=64))
 frames[0].save('assets/kinetic.gif',save_all=True,append_images=frames[1:],duration=80,loop=0,optimize=True,disposal=2)
 frames[56].convert('RGB').save('/tmp/z-face-preview.png')
+frames[38].convert('RGB').save('/tmp/z-turn-preview.png')
