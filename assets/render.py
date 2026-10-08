@@ -33,6 +33,13 @@ for frame in range(COUNT):
     # Inverse projection avoids gaps as the textured surface turns.
     yaw = 0.72*math.sin(t)
     pitch = 0.22*math.cos(t)
+    # Background displacement uses the same pose vector as the head.
+    # No independent wave clock: both layers reverse direction together.
+    flow_x = 0.85*math.sin(yaw)
+    flow_y = -0.90*math.sin(pitch)
+    flow_angle = 0.24*yaw + 0.35*pitch
+    flow_cos, flow_sin = math.cos(flow_angle), math.sin(flow_angle)
+    flow_phase = 0.60*yaw - 0.40*pitch
     face_values = {}
     def relief(u, v):
         oval = max(0, 1-(u/68)**2-((v-2)/43)**2)
@@ -58,14 +65,17 @@ for frame in range(COUNT):
         for col in range(COLS):
             x = (col-(COLS-1)/2)/46.5
             y = (row-(ROWS-1)/2)/35.3
-            # Traveling folds with a slow twisting center and concentric wake.
-            bend = 0.50*math.sin(x*1.5-t) + 0.20*math.cos(x*2+t)
-            yy = y-bend
-            radius = math.sqrt(x*x*0.58+yy*yy)
-            a = math.atan2(yy,x)
-            carrier = math.sin(yy*9 + 1.8*math.sin(x*2-t) + t*2)
-            wake = math.cos(radius*10-t*2+0.8*math.sin(a*2+t))
-            envelope = math.exp(-0.22*x*x-0.68*y*y)
+            # Move, tilt, and compress the field with the turning head.
+            dx,dy = x-flow_x,y-flow_y
+            wx = (dx*flow_cos+dy*flow_sin)/math.cos(yaw)
+            wy = -dx*flow_sin+dy*flow_cos
+            bend = 0.50*math.sin(wx*1.5-flow_phase) + 0.20*math.cos(wx*2+flow_phase)
+            yy = wy-bend
+            radius = math.sqrt(wx*wx*0.58+yy*yy)
+            a = math.atan2(yy,wx)
+            carrier = math.sin(yy*9 + 1.8*math.sin(wx*2-flow_phase) + flow_phase*2)
+            wake = math.cos(radius*10-flow_phase*2+0.8*math.sin(a*2+flow_phase))
+            envelope = math.exp(-0.22*wx*wx-0.68*wy*wy)
             value = max(0,min(1,(0.5+0.34*carrier+0.16*wake)*envelope))
             # Opaque portrait in front; waves stay behind the silhouette.
             if (col,row) in face_values:
