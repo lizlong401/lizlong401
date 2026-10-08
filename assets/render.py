@@ -1,99 +1,86 @@
-"""Render an inferred 3D head as a seamless ASCII turntable using Pillow.
-The supplied photograph textures the front; sides/back are approximations.
-"""
+"""Render a seamless ASCII kinetic field. Run with Python and Pillow."""
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
-from pathlib import Path
 import math
+from pathlib import Path
 
-COLS, ROWS = 180, 100
-CW, CH = 7, 11
-COUNT, DELAY = 100, 80
-font = ImageFont.truetype('/System/Library/Fonts/Menlo.ttc', 11)
-marks = ' .,:;irsXAHM#@'
-background = (12, 14, 17)
-original = Image.open(Path(__file__).with_name('face.png')).convert('RGB')
-source = original.convert('L')
-source = ImageOps.autocontrast(source, cutoff=1).filter(ImageFilter.UnsharpMask(radius=1,percent=150,threshold=3))
-texture = source.load()
-tw, th = source.size
-palette = Image.new('P',(1,1))
-palette.putpalette(list(background)+[c for v in range(1,256) for c in (v,v,min(255,v+4))])
-
-# Ellipsoid components in head space: cranium, nose, and both ears.
-parts = [
-    ((0,0,0),(.73,1,.65),'head'),
-    ((0,-.12,.64),(.105,.18,.17),'nose'),
-    ((-.73,-.035,-.015),(.115,.235,.10),'ear'),
-    ((.73,-.035,-.015),(.115,.235,.10),'ear'),
-]
-def intersect(origin, direction, center, radii):
-    o = tuple((origin[i]-center[i])/radii[i] for i in range(3))
-    d = tuple(direction[i]/radii[i] for i in range(3))
-    a = sum(v*v for v in d)
-    b = 2*sum(o[i]*d[i] for i in range(3))
-    c = sum(v*v for v in o)-1
-    disc = b*b-4*a*c
-    if disc < 0: return None
-    return (-b-math.sqrt(disc))/(2*a)
-def sample(u,v):
-    x = max(0,min(tw-1.001,u*(tw-1)))
-    y = max(0,min(th-1.001,v*(th-1)))
-    ix,iy = int(x),int(y)
-    fx,fy = x-ix,y-iy
-    return sum(texture[ix+dx,iy+dy]*wx*wy for dx,wx in ((0,1-fx),(1,fx)) for dy,wy in ((0,1-fy),(1,fy)))/255
-
-def render(frame):
-    # Start facing forward, then turn through the entire head.
-    angle = frame/COUNT*math.tau
-    co,si = math.cos(angle),math.sin(angle)
-    direction = (si,0,-co)
-    image = Image.new('RGB',(COLS*CW,ROWS*CH),background)
-    draw = ImageDraw.Draw(image)
+COLS, ROWS = 216, 92
+CW, CH = 6, 10
+COUNT = 112
+font = ImageFont.truetype('/System/Library/Fonts/Menlo.ttc', 10)
+# All marks are ASCII; their density and angle suggest flipping elements.
+marks = ' .:-=+*#%@'
+background = (13, 15, 17)
+source = Image.open(Path(__file__).with_name('face.png')).convert('RGB')
+portrait = source.resize((144, 86), Image.Resampling.LANCZOS)
+# Preserve natural light/dark relationships; sharpen existing features.
+gray = ImageOps.autocontrast(source.convert('L'), cutoff=1)
+gray = gray.filter(ImageFilter.UnsharpMask(radius=1.1, percent=190, threshold=3))
+gray = gray.resize((144, 86), Image.Resampling.LANCZOS)
+portrait_values = {}
+for py in range(86):
+    for px in range(144):
+        red, green, blue = portrait.getpixel((px, py))
+        if min(red, green, blue) > 223:
+            value = 0.0
+        else:
+            luminance = gray.getpixel((px, py))/255
+            value = 0.10 + 0.88*luminance**0.85
+        portrait_values[(px, py)] = value
+frames = []
+for frame in range(COUNT):
+    t = frame / COUNT * math.tau
+    progress = frame / COUNT
+    # Smooth reveal, a still portrait, and a smooth return to the waves.
+    def smooth(v):
+        v = max(0, min(1, v))
+        return v*v*(3-2*v)
+    reveal = smooth((progress-0.12)/0.20) * (1-smooth((progress-0.68)/0.20))
+    # An inferred shallow face relief: curved cheeks, brow, and nose.
+    # Inverse projection avoids gaps as the textured surface turns.
+    yaw = 0.72*math.sin(t)
+    pitch = 0.22*math.cos(t)
+    face_values = {}
+    def relief(u, v):
+        oval = max(0, 1-(u/68)**2-((v-2)/43)**2)
+        nose = 13*math.exp(-(u/9)**2-((v-5)/12)**2)
+        return 28*math.sqrt(oval)+nose
+    for py in range(86):
+        for px in range(160):
+            screen_x, screen_y = px-80, py-43
+            u, v = screen_x, screen_y
+            for _ in range(3):
+                depth = relief(u,v)
+                u = (screen_x-(depth-14)*math.sin(yaw))/math.cos(yaw)
+                v = screen_y+(depth-14)*math.sin(pitch)
+            sx, sy = int(round(u+72)), int(round(v+43))
+            tone = portrait_values.get((sx,sy),0)
+            if tone:
+                slope = (relief(u+1,v)-relief(u-1,v))/2
+                shade = max(0.65,min(1.15,0.96+0.18*slope*math.sin(yaw+0.6)))
+                face_values[(px+28,py+3)] = min(0.99,tone*shade)
+    canvas = Image.new('RGB' , (COLS*CW, ROWS*CH), background)
+    draw = ImageDraw.Draw(canvas)
     for row in range(ROWS):
-        y = (49.5-row)/43
         for col in range(COLS):
-            x = (col-89.5)/(43*CH/CW)
-            if abs(x)>.93 or abs(y)>1.02: continue
-            origin = (co*x-si*3,y,si*x+co*3)
-            hit = None
-            for center,radii,kind in parts:
-                dist = intersect(origin,direction,center,radii)
-                if dist is not None and (hit is None or dist<hit[0]):
-                    hit = (dist,center,radii,kind)
-            if hit is None: continue
-            dist,center,radii,kind = hit
-            p = tuple(origin[i]+dist*direction[i] for i in range(3))
-            normal = tuple((p[i]-center[i])/radii[i]**2 for i in range(3))
-            length = math.sqrt(sum(v*v for v in normal))
-            nx,ny,nz = (v/length for v in normal)
-            # Transform the surface normal into camera space.
-            cx,cz = co*nx+si*nz,-si*nx+co*nz
-            light = max(0,-.40*cx+.35*ny+.84*cz)
-            rim = (1-max(0,cz))**3
-            longitude = math.atan2(p[0]/.73,p[2]/.65)
-            front = max(0,min(1,(1.28-abs(longitude))/.40))
-            hair = p[1]>.48 or (abs(longitude)>1.22 and p[1]>-.65)
-            base = .115 if hair else .51
-            if hair:
-                base += .035*math.sin(longitude*47+p[1]*22)
-            if kind == 'head' and front>0:
-                # Map the original frontal head photo onto the curved surface.
-                u,v = (p[0]/.73+1)/2,(1-p[1])/2
-                photo = sample(u,v)
-                pixel = original.getpixel((max(0,min(tw-1,int(u*(tw-1)))),max(0,min(th-1,int(v*(th-1))))))
-                photo = base if min(pixel)>223 else .09+.84*photo**.85
-                base = base*(1-front)+photo*front
-            elif kind == 'nose':
-                base = .09+.84*sample((p[0]/.73+1)/2,(1-p[1])/2)**.85
-            elif kind == 'ear':
-                base = .38+.10*light
-            tone = max(.035,min(.98,base*(.45+.68*light)+.10*rim))
-            glyph = marks[min(len(marks)-1,int(tone*len(marks)))]
-            brightness = int(45+210*tone)
-            draw.text((col*CW,row*CH),glyph,font=font,fill=(brightness,brightness,min(255,brightness+4)))
-    return image
-
-frames = [render(frame).quantize(palette=palette,dither=Image.Dither.NONE) for frame in range(COUNT)]
-frames[0].save('assets/kinetic.gif',save_all=True,append_images=frames[1:],duration=DELAY,loop=0,optimize=True,disposal=2)
-for i,label in [(0,'front'),(20,'side'),(50,'back')]:
-    frames[i].convert('RGB').save(f'/tmp/z-head-{label}.png')
+            x = (col-(COLS-1)/2)/46.5
+            y = (row-(ROWS-1)/2)/35.3
+            # Traveling folds with a slow twisting center and concentric wake.
+            bend = 0.50*math.sin(x*1.5-t) + 0.20*math.cos(x*2+t)
+            yy = y-bend
+            radius = math.sqrt(x*x*0.58+yy*yy)
+            a = math.atan2(yy,x)
+            carrier = math.sin(yy*9 + 1.8*math.sin(x*2-t) + t*2)
+            wake = math.cos(radius*10-t*2+0.8*math.sin(a*2+t))
+            envelope = math.exp(-0.22*x*x-0.68*y*y)
+            value = max(0,min(1,(0.5+0.34*carrier+0.16*wake)*envelope))
+            face = face_values.get((col,row), 0.0)
+            value = value*(1-reveal) + face*reveal
+            idx = min(len(marks)-1,int(value*len(marks)))
+            char = marks[idx]
+            if char == ' ': continue
+            brightness = int(28+value*227)
+            draw.text((col*CW,row*CH),char,font=font,fill=(brightness,brightness,min(255,brightness+4)))
+    frames.append(canvas.quantize(colors=64))
+frames[0].save('assets/kinetic.gif',save_all=True,append_images=frames[1:],duration=80,loop=0,optimize=True,disposal=2)
+frames[56].convert('RGB').save('/tmp/z-face-preview.png')
+frames[38].convert('RGB').save('/tmp/z-turn-preview.png')
